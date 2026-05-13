@@ -13,7 +13,7 @@ class DatabaseHelper {
   // 获取数据库实例，如果不存在则初始化
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('touken_tracker_test2.lldb');
+    _database = await _initDB('touken_tracker_test2.db');
     return _database!;
   }
 
