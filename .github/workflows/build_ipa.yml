@@ -1,0 +1,37 @@
+name: Build iOS Unsigned IPA
+
+on:
+  workflow_dispatch: # 允许你在 GitHub 网页上点个按钮手动触发打包
+
+jobs:
+  build-ios:
+    runs-on: macos-latest # 重点：召唤云端 Mac 系统
+
+    steps:
+      - name: 获取项目代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: 强行编译 iOS (跳过签名验证)
+        # --no-codesign 是关键，否则云端 Mac 会因为找不到证书报错停止
+        run: flutter build ios --release --no-codesign
+
+      - name: 将 App 包装成 IPA 格式
+        # 苹果的 ipa 其实就是一个特殊的压缩包，里面包含一个 Payload 文件夹
+        run: |
+          mkdir -p Payload
+          mv build/ios/iphoneos/Runner.app Payload/
+          zip -qq -r ToukenTracker.ipa Payload
+
+      - name: 上传产物让你下载
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ToukenTracker.ipa
