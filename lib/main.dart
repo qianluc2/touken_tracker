@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'db_helper.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
@@ -465,29 +466,74 @@ class _SwordGalleryScreenState extends State<SwordGalleryScreen> {
   // --- 新增：CSV 导出逻辑 ---
   void _performExport() async {
     try {
+      // 1. 从数据库拿到最新的全量 CSV 字符串
       String csvData = await DatabaseHelper.instance.exportDataAsCsv();
-
-      // 获取本地文档目录
-      final docDir = await getApplicationDocumentsDirectory();
-      // 生成带时间戳的 CSV 文件名
-      final backupPath = p.join(
-        docDir.path,
-        'ToukenTracker_Backup_${DateTime.now().millisecondsSinceEpoch}.csv',
-      );
-      final file = File(backupPath);
-      await file.writeAsString(csvData);
-
-      if (mounted) {
+      if (csvData.isEmpty) {
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('CSV 已成功导出至:\n$backupPath')));
+        ).showSnackBar(const SnackBar(content: Text('数据库为空，没有可导出的数据！')));
+        return;
+      }
+
+      // 2. 电脑端逻辑：弹出“另存为”窗口
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        String? outputFile = await FilePicker.saveFile(
+          dialogTitle: '保存刀帐备份',
+          fileName: 'touken_backup.csv',
+          type: FileType.custom,
+          allowedExtensions: ['csv'],
+        );
+
+        if (outputFile != null) {
+          File file = File(outputFile);
+          await file.writeAsString(csvData);
+          if (!mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('✅ 导出成功！文件已保存至: $outputFile')));
+        }
+      }
+      // 3. 手机端逻辑：生成临时文件并调起系统分享面板
+      else if (Platform.isIOS || Platform.isAndroid) {
+        // 拿到手机的临时缓存目录
+        final directory = await getTemporaryDirectory();
+        final path = p.join(directory.path, 'touken_backup.csv');
+        final file = File(path);
+
+        // 把 CSV 数据写入这个临时文件
+        await file.writeAsString(csvData);
+
+        final xFile = XFile(path);
+
+        // 核心魔法：调起 iOS/Android 的系统分享！
+        // 你可以在这里直接选择 "存储到文件" (Save to Files) 或者 AirDrop
+        final result = await SharePlus.instance.share(
+          ShareParams(
+            files: [xFile],
+            text: "刀剑乱舞图鉴备份",
+            subject: 'touken_backup.csv',
+          ),
+        );
+
+        if (mounted) {
+          if (result.status == ShareResultStatus.success) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('✅ 导出并保存成功！')));
+          } else if (result.status == ShareResultStatus.dismissed) {
+            // 用户中途取消了分享/划掉了面板
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('分享已取消')));
+          }
+        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('❌ 导出失败: $e')));
     }
   }
 
