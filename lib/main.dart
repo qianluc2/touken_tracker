@@ -509,11 +509,7 @@ class _SwordGalleryScreenState extends State<SwordGalleryScreen> {
         // 核心魔法：调起 iOS/Android 的系统分享！
         // 你可以在这里直接选择 "存储到文件" (Save to Files) 或者 AirDrop
         final result = await SharePlus.instance.share(
-          ShareParams(
-            files: [xFile],
-            text: "刀剑乱舞图鉴备份",
-            subject: 'touken_backup.csv',
-          ),
+          ShareParams(files: [xFile], subject: 'touken_backup.csv'),
         );
 
         if (mounted) {
