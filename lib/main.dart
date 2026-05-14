@@ -462,6 +462,99 @@ class _SwordGalleryScreenState extends State<SwordGalleryScreen> {
     );
   }
 
+  // --- 新增：CSV 导出逻辑 ---
+  void _performExport() async {
+    try {
+      String csvData = await DatabaseHelper.instance.exportDataAsCsv();
+
+      // 获取本地文档目录
+      final docDir = await getApplicationDocumentsDirectory();
+      // 生成带时间戳的 CSV 文件名
+      final backupPath = p.join(
+        docDir.path,
+        'ToukenTracker_Backup_${DateTime.now().millisecondsSinceEpoch}.csv',
+      );
+      final file = File(backupPath);
+      await file.writeAsString(csvData);
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('CSV 已成功导出至:\n$backupPath')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      }
+    }
+  }
+
+  // --- 新增：CSV 导入逻辑 ---
+  void _performImport() async {
+    FilePickerResult? result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv'], // 限制只能选择 CSV 文件
+    );
+
+    if (result != null) {
+      try {
+        final file = File(result.files.single.path!);
+        String csvContent = await file.readAsString();
+
+        setState(() => _isLoading = true);
+        await DatabaseHelper.instance.importDataFromCsv(csvContent);
+        await _loadData(); // 重新加载界面
+
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('数据已成功导入！')));
+        }
+      } catch (e) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('导入失败，请检查 CSV 格式。')));
+        }
+      }
+    }
+  }
+
+  // --- 新增：重置数据逻辑 ---
+  void _performReset() async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('⚠️ 危险操作'),
+        content: const Text('这将会清空你所有的收集进度并恢复到初始状态。确定要继续吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('确认重置', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      await DatabaseHelper.instance.resetToInitial();
+      await _loadData(); // 重新加载列表数据
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已完全重置并恢复初始数据')));
+      }
+    }
+  }
+
   // 添加自定义刀剑的弹窗
   void _showAddSwordDialog(BuildContext context) {
     final idController = TextEditingController();
@@ -650,23 +743,66 @@ class _SwordGalleryScreenState extends State<SwordGalleryScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
-          // ✨ 新增：网格/列表切换按钮
+          // 原本的网格/列表切换按钮
           IconButton(
             icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
             tooltip: '切换视图',
             onPressed: () {
               setState(() {
-                _isGridView = !_isGridView; // 切换状态
+                _isGridView = !_isGridView;
               });
             },
           ),
-          // 下面是你原本的筛选按钮
+          // 原本的筛选按钮
           IconButton(
             icon: Icon(
               _isFilterActive ? Icons.filter_alt : Icons.filter_alt_outlined,
-              color: _isFilterActive ? Colors.amber : Colors.blue,
+              color: _isFilterActive ? Colors.amber : Colors.blueGrey,
             ),
             onPressed: _openFilterSheet,
+          ),
+          // ✨ 新增：数据管理下拉菜单
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: '数据管理',
+            onSelected: (value) {
+              if (value == 'export') _performExport();
+              if (value == 'import') _performImport();
+              if (value == 'reset') _performReset();
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.upload_file, size: 20),
+                    SizedBox(width: 8),
+                    Text('导出备份 (CSV)'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.download, size: 20),
+                    SizedBox(width: 8),
+                    Text('导入备份 (CSV)'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'reset',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_forever, color: Colors.red, size: 20),
+                    SizedBox(width: 8),
+                    Text('完全重置', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -727,9 +863,11 @@ class _SwordGalleryScreenState extends State<SwordGalleryScreen> {
                       // ✨ 核心逻辑：判断当前是网格还是列表？
                       : _isGridView
                       ? GridView.builder(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 12,
+                          padding: const EdgeInsets.fromLTRB(
+                            8.0,
+                            8.0,
+                            8.0,
+                            100.0,
                           ),
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
@@ -1024,7 +1162,7 @@ class _SwordDetailSheetState extends State<SwordDetailSheet> {
                         final appDir = Directory(
                           p.join(docDir.path, 'ToukenTracker_Images'),
                         );
-                        if (!await appDir.exists()){
+                        if (!await appDir.exists()) {
                           await appDir.create(recursive: true);
                         }
                         final selectedFile = File(result.files.single.path!);
